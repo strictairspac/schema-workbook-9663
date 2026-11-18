@@ -32,6 +32,7 @@ services:
       DATABASE_URL: mysql+pymysql://schemaworkbook:${DB_PASSWORD:-schemaworkbook_demo_pw}@db:3306/schemaworkbook
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET: ${JWT_SECRET:-local-schema-workbook-change-before-public-use}
+      EVIDENCE_SECRET: ${EVIDENCE_SECRET:-local-evidence-secret-change-before-public-use}
       SEED_DEMO: ${SEED_DEMO:-true}
     ports: ["${BACKEND_PORT:-19243}:8000"]
     volumes: [run-artifacts:/artifacts]

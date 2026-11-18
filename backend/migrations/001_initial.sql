@@ -1,3 +1,15 @@
 -- Initial schema is applied idempotently by SQLAlchemy metadata.create_all.
 -- Authoritative models: src/models/entities.py (relations, dependencies, reports,
--- audit_logs and users). Dependencies/report snapshots are persisted as MySQL JSON.
+-- audit_logs, users, change_evidences and chain_meta). Dependencies/report snapshots
+-- are persisted as MySQL JSON.
+--
+-- Change forensics (see src/services/forensics.py):
+--   change_evidences : append-only SHA256 hash chain; one row per successful business
+--                      change or report acceptance, with before/after images, actor,
+--                      global monotonic seq and prev_hash linkage.
+--   chain_meta       : single-row counter atomically incremented to serialize seq
+--                      allocation across concurrent edits and report acceptance.
+--   relations/dependencies carry a version column; reports carry accept_seq,
+--   source_anchors and accept_evidence_hash pinning the frozen acceptance point.
+-- Credentials are Ed25519-signed bundles verifiable offline via
+-- scripts/verify_credential.py (detects tampering, reordering and truncation).

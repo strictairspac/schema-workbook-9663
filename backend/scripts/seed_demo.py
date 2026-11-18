@@ -1,6 +1,6 @@
 from sqlalchemy import select,func
 from src.config.database import Session,Base,engine
-from src.models.entities import User,Relation,Dependency,Report
+from src.models.entities import User,Relation,Dependency,Report,Audit
 from src.utils.security import password_hash
 
 def seed():
@@ -16,5 +16,9 @@ def seed():
             rel=Relation(code=code,title=title,attributes=attrs,note='南麓材料实验室 · 09:15 委托表复核');db.add(rel);db.flush()
             for lhs,rhs in fds:db.add(Dependency(relation_id=rel.id,lhs=lhs,rhs=rhs,note='业务确认依赖'))
         db.commit()
-        print({cls.__tablename__:db.scalar(select(func.count()).select_from(cls)) for cls in (User,Relation,Dependency,Report)})
+        # 取证功能上线前的历史操作记录：无前后镜像与哈希链接，页面应标为“无法追溯”
+        if not db.scalar(select(Audit).where(Audit.action=='历史Excel迁移：批量导入委托单草案')):
+            db.add(Audit(actor='admin@nanlu.test',action='历史Excel迁移：批量导入委托单草案'))
+            db.commit()
+        print({cls.__tablename__:db.scalar(select(func.count()).select_from(cls)) for cls in (User,Relation,Dependency,Report,Audit)})
 if __name__=='__main__':seed()

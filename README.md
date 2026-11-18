@@ -44,6 +44,18 @@ Python真算，MySQL保存草案/依赖与结果，Redis传递任务，独立wor
 
 这是小型关系模型设计辅助工具，FD由人工提供，不能从脏数据自动推断业务规则；不连接生产数据或自动执行DDL。精确投影在10属性内有界，仍可能随依赖复杂度增加耗时。单worker串行队列，不带生产任务重试/崩溃续跑。
 
+## 变更取证与离线凭证
+
+普通审计日志只有动作名称，无法还原草案与依赖的具体更改。系统在 `change_evidences` 表上维护只追加（append-only）的 SHA256 哈希链，覆盖每次成功的业务修改与报告受理：
+
+- **前后镜像与操作者**：关系草案、函数依赖的每次成功创建/修改都在同一数据库事务内写入一条取证记录，含变更前/后完整内容、操作者、固定 ISO8601 时间戳与全局连续序号 `seq`；实体带 `version` 版本号。取证写入失败则业务修改整体回滚，不会出现“改了业务但没留证”。
+- **报告来源可核对**：报告受理（入队冻结）本身是一条 `report_accept` 取证记录，`source_anchors` 记录受理瞬间采用的草案/依赖版本及其最近取证哈希。并发编辑与受理由 `chain_meta` 单行的原子自增串行化，序号连续，先后次序可核对；受理后的后续修改不影响已冻结快照。
+- **页面状态**：「变更取证」页（导航 V）在线重算全链哈希，状态为待核验 `pending` → 可信 `trusted` / 损坏 `damaged`，并定位第一个断裂序号（区分内容篡改、乱序/删尾、前向链接断裂）。取证功能上线前的历史审计记录单独列出并标记为“无法追溯”。
+- **下载凭证固定时点**：全链凭证固定在下载时的已提交链首；报告受理凭证固定在该报告的受理时点。凭证 = 规范 JSON 清单 + Ed25519 签名（密钥由 `EVIDENCE_SECRET` 确定性派生，凭证内嵌公钥）。后续正常修改不会使旧凭证失效。
+- **离线核验**：`python -m scripts.verify_credential <凭证.json> [--public-key pub.pem]` 不依赖数据库或后端，重算每条 `record_hash`、核对 `prev_hash` 链接与序号连续性，可检出内容篡改、乱序与删尾，并验签确认凭证来源。
+
+数据库表新增 `change_evidences`、`chain_meta`，并在 `relations`/`dependencies` 增加 `version`、`reports` 增加受理时点字段；均由 SQLAlchemy `metadata.create_all` 幂等建表，旧库重启后自动补齐（新列取默认值）。
+
 ## 工程结构
 
 |服务|技术|职责|
@@ -58,7 +70,7 @@ Python真算，MySQL保存草案/依赖与结果，Redis传递任务，独立wor
 
 枚举：角色admin/operator/viewer、任务queued/running/completed/failed；前后端定义位于 `backend/src/constants/enums.py` 和 `frontend/src/constants/enums.js`，security/reports、frame/badge消费；worker持久化状态。
 
-环境变量见.env.example：COMPOSE_PROJECT_NAME、FRONTEND_PORT/BACKEND_PORT/DB_PORT、DB_PASSWORD、JWT_SECRET、SEED_DEMO。默认密码仅本地演示，JWT8小时。seed按自然键只补缺失关系及初始依赖，不覆盖用户修改。schema由SQLAlchemy metadata.create_all初始化，无在线迁移引擎。
+环境变量见.env.example：COMPOSE_PROJECT_NAME、FRONTEND_PORT/BACKEND_PORT/DB_PORT、DB_PASSWORD、JWT_SECRET、EVIDENCE_SECRET、SEED_DEMO。默认密码/取证秘密仅本地演示，JWT8小时。seed按自然键只补缺失关系及初始依赖，不覆盖用户修改。schema由SQLAlchemy metadata.create_all初始化，无在线迁移引擎。
 
 本地开发：Python3.11安装backend/requirements.txt，配置DATABASE_URL/REDIS_URL后从backend运行 `uvicorn src.main:app --reload`、`python -m src.worker`；前端用Nginx同源代理/api。5服务均有健康检查和健康依赖，数据库/Redis/worker产物为独立命名卷。停止清空：`docker compose down -v --remove-orphans`。
 
